@@ -1,0 +1,27 @@
+# Gradle & build caches
+.gradle/
+build/
+app/build/
+**/build/
+
+# Local configuration & Keystores (CRITICAL for security)
+local.properties
+*.jks
+*.keystore
+signing.properties
+
+# IDE & OS files
+.idea/
+.kotlin/
+*.iml
+.DS_Store
+Thumbs.db
+captures/
+.externalNativeBuild/
+
+# Scratch & inspection scripts
+*.py
+scratch/
+
+# Pre-compiled local APKs (distribute via GitHub Releases / CI artifacts)
+*.apk

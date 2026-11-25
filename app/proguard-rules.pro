@@ -1,0 +1,2 @@
+-keepattributes *Annotation*
+-keepclassmembers class wtf.evi.mobile.data.model.** { *; }

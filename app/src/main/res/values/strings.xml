@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Evi Unofficial</string>
+    <string name="playback_channel_name">Music Playback</string>
+    <string name="playback_channel_description">Controls for currently playing music on Evi Unofficial</string>
+</resources>
