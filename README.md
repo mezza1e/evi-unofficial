@@ -40,7 +40,7 @@ Every release published in [GitHub Releases](../../releases) includes cryptograp
 
 ### Latest Release: v0.1.29
 * **File**: `Evi-Unofficial-0.1.29.apk`
-* **SHA-256**: `17A2E9E7A10E36208FC8FAB79D61F40CCB4CD3F47697A351CBDA67C19FC08FD2`
+* **SHA-256**: `BC9CB24FD19FA78248835E75E27CE444624971829EA7CAD23AD2C5A8BDC4117D`
 
 #### Verify on Windows (PowerShell):
 ```powershell
