@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
@@ -170,7 +172,8 @@ fun SongRow(
     modifier: Modifier = Modifier,
     trackNumber: Int? = null,
     showArtwork: Boolean = true,
-    isDownloaded: Boolean = false
+    isDownloaded: Boolean = false,
+    onRemoveClick: (() -> Unit)? = null
 ) {
     val colors = LocalEviColors.current
     Row(
@@ -296,6 +299,16 @@ fun SongRow(
                 modifier = Modifier.size(20.dp)
             )
         }
+        if (onRemoveClick != null) {
+            IconButton(onClick = onRemoveClick, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = "Remove from playlist",
+                    tint = Color(0xFFFF5A5A).copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
         IconButton(onClick = onMoreClick, modifier = Modifier.size(36.dp)) {
             Icon(
                 imageVector = Icons.Rounded.MoreVert,
@@ -398,11 +411,15 @@ fun SongOptionsSheet(
     isLiked: Boolean,
     isDownloaded: Boolean = false,
     isDownloading: Boolean = false,
+    currentPlaylist: Playlist? = null,
+    playlistsContainingSong: List<Playlist> = emptyList(),
     onDismiss: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
     onToggleLike: () -> Unit,
     onAddToPlaylist: () -> Unit,
+    onRemoveFromCurrentPlaylist: (() -> Unit)? = null,
+    onOpenRemoveFromPlaylistPicker: (() -> Unit)? = null,
     onOpenArtist: () -> Unit,
     onOpenAlbum: () -> Unit,
     onDownload: (() -> Unit)? = null,
@@ -463,6 +480,21 @@ fun SongOptionsSheet(
                 label = "Add to playlist",
                 onClick = { onDismiss(); onAddToPlaylist() }
             )
+            if (currentPlaylist != null && onRemoveFromCurrentPlaylist != null) {
+                SheetActionItem(
+                    icon = Icons.Rounded.DeleteOutline,
+                    label = "Remove from \"${currentPlaylist.name}\"",
+                    iconTint = colors.accent,
+                    onClick = { onDismiss(); onRemoveFromCurrentPlaylist() }
+                )
+            }
+            if (playlistsContainingSong.isNotEmpty() && onOpenRemoveFromPlaylistPicker != null) {
+                SheetActionItem(
+                    icon = Icons.Rounded.DeleteOutline,
+                    label = "Remove from a playlist...",
+                    onClick = { onDismiss(); onOpenRemoveFromPlaylistPicker() }
+                )
+            }
             SheetActionItem(
                 icon = Icons.Rounded.QueuePlayNext,
                 label = "Play next",
@@ -613,8 +645,9 @@ fun AddToPlaylistSheet(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
                 )
             } else {
-                LazyColumn(modifier = Modifier.height(280.dp)) {
+                LazyColumn(modifier = Modifier.heightIn(max = 350.dp)) {
                     items(playlists.filter { !it.smart }, key = { it.id }) { pl ->
+                        val isAlreadyInPlaylist = pl.songs.any { it.id == song.id }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -635,6 +668,25 @@ fun AddToPlaylistSheet(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(pl.name, color = colors.textPrimary, fontWeight = FontWeight.Medium)
                                 Text("${pl.songs.size} songs", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            if (isAlreadyInPlaylist) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = "Added",
+                                        tint = colors.accent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Added",
+                                        color = colors.accent,
+                                        style = MaterialTheme.typography.labelMedium
+                                    )
+                                }
                             }
                         }
                     }
@@ -670,5 +722,79 @@ fun AddToPlaylistSheet(
                 TextButton(onClick = { showCreateDialog = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RemoveFromPlaylistSheet(
+    song: Song,
+    playlists: List<Playlist>,
+    onDismiss: () -> Unit,
+    onSelectPlaylist: (Playlist) -> Unit
+) {
+    val colors = LocalEviColors.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface,
+        contentColor = colors.textPrimary
+    ) {
+        Column(modifier = Modifier.padding(bottom = 24.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Remove from playlist",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.textPrimary
+                )
+            }
+
+            if (playlists.isEmpty()) {
+                Text(
+                    text = "\"${song.title}\" is not in any of your editable playlists.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                )
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 350.dp)) {
+                    items(playlists, key = { it.id }) { pl ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelectPlaylist(pl)
+                                    onDismiss()
+                                }
+                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ArtworkImage(
+                                url = pl.resolvedCoverUrl(),
+                                contentDescription = pl.name,
+                                modifier = Modifier.size(46.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(pl.name, color = colors.textPrimary, fontWeight = FontWeight.Medium)
+                                Text("${pl.songs.size} songs", color = colors.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            Icon(
+                                imageVector = Icons.Rounded.DeleteOutline,
+                                contentDescription = "Remove",
+                                tint = colors.accent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

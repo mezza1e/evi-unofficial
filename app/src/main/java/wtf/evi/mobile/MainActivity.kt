@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import wtf.evi.mobile.data.model.Album
 import wtf.evi.mobile.data.model.Mix
+import wtf.evi.mobile.data.model.Playlist
 import wtf.evi.mobile.data.model.Song
 import wtf.evi.mobile.data.model.WeeklyPlaylist
 import wtf.evi.mobile.player.EviPlaybackService
@@ -65,6 +66,7 @@ import wtf.evi.mobile.ui.components.AuthSheet
 import wtf.evi.mobile.ui.components.EqualizerBottomSheet
 import wtf.evi.mobile.ui.components.MiniPlayer
 import wtf.evi.mobile.ui.components.NowPlayingDialog
+import wtf.evi.mobile.ui.components.RemoveFromPlaylistSheet
 import wtf.evi.mobile.ui.components.SongOptionsSheet
 import wtf.evi.mobile.ui.screens.AlbumDetailScreen
 import wtf.evi.mobile.ui.screens.ArtistDetailScreen
@@ -185,7 +187,9 @@ private fun EviRootApp(
     var openWithLyrics by remember { mutableStateOf(false) }
     var showAuthSheet by remember { mutableStateOf(false) }
     var songForOptions by remember { mutableStateOf<Song?>(null) }
+    var activePlaylistForOptions by remember { mutableStateOf<Playlist?>(null) }
     var songForPlaylistPicker by remember { mutableStateOf<Song?>(null) }
+    var songForRemovePlaylistPicker by remember { mutableStateOf<Song?>(null) }
     var showGlobalEqualizerSheet by remember { mutableStateOf(false) }
     var pendingPlayAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
@@ -358,7 +362,15 @@ private fun EviRootApp(
                                 onBack = { backStack.removeAt(backStack.lastIndex) },
                                 onPlaySongs = ::playWithAuthCheck,
                                 onToggleLike = { container.toggleLike(it) },
-                                onMoreSong = { songForOptions = it },
+                                onMoreSong = {
+                                    activePlaylistForOptions = playlist
+                                    songForOptions = it
+                                },
+                                onRemoveSong = if (playlist != null && !playlist.smart && !playlist.isShared) {
+                                    { targetSong ->
+                                        scope.launch { container.removeSongFromPlaylist(playlist, targetSong.id) }
+                                    }
+                                } else null,
                                 onRenamePlaylist = { newName ->
                                     playlist?.let { pl -> scope.launch { container.renamePlaylist(pl, newName) } }
                                 },
@@ -622,16 +634,32 @@ private fun EviRootApp(
         }
 
         songForOptions?.let { song ->
+            val containingPlaylists = playlists.filter { pl -> !pl.smart && !pl.isShared && pl.songs.any { it.id == song.id } }
+            val currentPl = activePlaylistForOptions
+            val isCurrentEditable = currentPl != null && !currentPl.smart && !currentPl.isShared
             SongOptionsSheet(
                 song = song,
                 isLiked = likedIds.contains(song.id),
                 isDownloaded = downloadedSongIds.contains(song.id),
                 isDownloading = downloadProgress.containsKey(song.id),
-                onDismiss = { songForOptions = null },
+                currentPlaylist = if (isCurrentEditable) currentPl else null,
+                playlistsContainingSong = containingPlaylists,
+                onDismiss = {
+                    songForOptions = null
+                    activePlaylistForOptions = null
+                },
                 onPlayNext = { playbackController.playNext(song) },
                 onAddToQueue = { playbackController.addToQueue(listOf(song)) },
                 onToggleLike = { container.toggleLike(song) },
                 onAddToPlaylist = { songForPlaylistPicker = song },
+                onRemoveFromCurrentPlaylist = if (isCurrentEditable && currentPl != null) {
+                    {
+                        scope.launch { container.removeSongFromPlaylist(currentPl, song.id) }
+                    }
+                } else null,
+                onOpenRemoveFromPlaylistPicker = if (containingPlaylists.isNotEmpty()) {
+                    { songForRemovePlaylistPicker = song }
+                } else null,
                 onDownload = {
                     container.downloadManager.downloadSong(song, settings.audioQuality)
                 },
@@ -681,6 +709,18 @@ private fun EviRootApp(
                 onDismiss = { songForPlaylistPicker = null },
                 onSelectPlaylist = { pl -> scope.launch { container.addSongToPlaylist(pl, song) } },
                 onCreatePlaylist = { name -> scope.launch { container.createPlaylist(name, listOf(song)) } }
+            )
+        }
+
+        songForRemovePlaylistPicker?.let { song ->
+            val containingPlaylists = playlists.filter { pl -> !pl.smart && !pl.isShared && pl.songs.any { it.id == song.id } }
+            RemoveFromPlaylistSheet(
+                song = song,
+                playlists = containingPlaylists,
+                onDismiss = { songForRemovePlaylistPicker = null },
+                onSelectPlaylist = { pl ->
+                    scope.launch { container.removeSongFromPlaylist(pl, song.id) }
+                }
             )
         }
 

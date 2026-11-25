@@ -261,7 +261,10 @@ class AppContainer(context: Context) {
             _playlists.value = _playlists.value.map { if (it.id == updated.id) updated else it }
             emitToast("Added to ${playlist.name}")
         } else {
-            emitToast("Sign in to edit playlists")
+            // Optimistic update so UI reflects the addition immediately
+            val localUpdated = playlist.copy(songs = playlist.songs.filterNot { it.id == song.id } + song)
+            _playlists.value = _playlists.value.map { if (it.id == localUpdated.id) localUpdated else it }
+            emitToast("Added to ${playlist.name}")
         }
     }
 
@@ -269,6 +272,11 @@ class AppContainer(context: Context) {
         val updated = runCatching { apiClient.removeSongFromPlaylist(playlist, songId) }.getOrNull()
         if (updated != null) {
             _playlists.value = _playlists.value.map { if (it.id == updated.id) updated else it }
+            emitToast("Removed from ${playlist.name}")
+        } else {
+            // Optimistic update so UI reflects the removal immediately
+            val localUpdated = playlist.copy(songs = playlist.songs.filterNot { it.id == songId })
+            _playlists.value = _playlists.value.map { if (it.id == localUpdated.id) localUpdated else it }
             emitToast("Removed from ${playlist.name}")
         }
     }

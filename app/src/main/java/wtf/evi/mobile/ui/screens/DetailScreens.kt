@@ -425,6 +425,7 @@ fun SongCollectionDetailScreen(
     onMoreSong: (Song) -> Unit,
     onRenamePlaylist: ((String) -> Unit)? = null,
     onDeletePlaylist: (() -> Unit)? = null,
+    onRemoveSong: ((Song) -> Unit)? = null,
     downloadedIds: Set<String> = emptySet(),
     downloadProgress: Map<String, Float> = emptyMap(),
     onDownloadAll: (() -> Unit)? = null,
@@ -433,6 +434,7 @@ fun SongCollectionDetailScreen(
     val colors = LocalEviColors.current
     var showRename by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var songToRemoveConfirm by remember { mutableStateOf<Song?>(null) }
 
     LazyColumn(
         modifier = Modifier
@@ -575,7 +577,10 @@ fun SongCollectionDetailScreen(
                     isDownloaded = downloadedIds.contains(song.id),
                     onClick = { onPlaySongs(songs, idx, false) },
                     onToggleLike = { onToggleLike(song) },
-                    onMoreClick = { onMoreSong(song) }
+                    onMoreClick = { onMoreSong(song) },
+                    onRemoveClick = if (isEditablePlaylist && onRemoveSong != null) {
+                        { songToRemoveConfirm = song }
+                    } else null
                 )
             }
         }
@@ -614,6 +619,23 @@ fun SongCollectionDetailScreen(
                 }) { Text("Delete", color = Color(0xFFFF5A5A)) }
             },
             dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") } }
+        )
+    }
+
+    songToRemoveConfirm?.let { targetSong ->
+        AlertDialog(
+            onDismissRequest = { songToRemoveConfirm = null },
+            containerColor = colors.surfaceElevated,
+            title = { Text("Remove from playlist?", color = colors.textPrimary) },
+            text = { Text("Are you sure you want to remove \"${targetSong.title}\" from \"$title\"?", color = colors.textSecondary) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val toRemove = targetSong
+                    songToRemoveConfirm = null
+                    onRemoveSong?.invoke(toRemove)
+                }) { Text("Remove", color = Color(0xFFFF5A5A)) }
+            },
+            dismissButton = { TextButton(onClick = { songToRemoveConfirm = null }) { Text("Cancel") } }
         )
     }
 }
