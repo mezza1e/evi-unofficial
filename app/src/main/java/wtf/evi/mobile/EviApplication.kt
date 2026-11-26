@@ -4,6 +4,11 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Build
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
@@ -123,12 +128,24 @@ class AppContainer(context: Context) {
     val apiClient = EviApiClient(httpClient, cookieJar)
     val downloadManager = DownloadManager(context, httpClient, downloadStore)
 
+    @OptIn(UnstableApi::class)
+    val streamCache: SimpleCache by lazy {
+        val dir = File(cacheDir, "stream_cache_v2")
+        val evictor = LeastRecentlyUsedCacheEvictor(256L * 1024L * 1024L)
+        val dbProvider = StandaloneDatabaseProvider(appContext)
+        runCatching { SimpleCache(dir, evictor, dbProvider) }.getOrElse {
+            runCatching { SimpleCache.delete(dir, dbProvider) }
+            dir.deleteRecursively()
+            SimpleCache(dir, evictor, dbProvider)
+        }
+    }
+
     init {
         // Purge any legacy ExoPlayer SimpleCache directory (media_cache) from older builds
         // where expired presigned redirects (exo_redir) or partial chunked spans could persist across restarts.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching {
-                val legacyMediaCache = File(context.cacheDir, "media_cache")
+                val legacyMediaCache = File(cacheDir, "media_cache")
                 if (legacyMediaCache.exists()) {
                     legacyMediaCache.deleteRecursively()
                 }

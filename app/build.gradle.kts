@@ -13,8 +13,8 @@ android {
         applicationId = "wtf.evi.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 102
-        versionName = "1.0.2"
+        versionCode = 103
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,12 +72,13 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-session:1.5.1")
-    implementation("androidx.media3:media3-datasource:1.5.1")
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
-    implementation("androidx.media3:media3-database:1.5.1")
-    implementation("androidx.media3:media3-common:1.5.1")
+    implementation("androidx.media3:media3-exoplayer:1.9.4")
+    implementation("androidx.media3:media3-session:1.9.4")
+    implementation("androidx.media3:media3-datasource:1.9.4")
+    implementation("androidx.media3:media3-datasource-okhttp:1.9.4")
+    implementation("androidx.media3:media3-database:1.9.4")
+    implementation("androidx.media3:media3-common:1.9.4")
+    implementation("androidx.media3:media3-extractor:1.9.4")
 
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.palette:palette-ktx:1.0.0")

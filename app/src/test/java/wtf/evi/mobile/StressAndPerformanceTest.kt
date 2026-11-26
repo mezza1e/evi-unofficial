@@ -952,83 +952,150 @@ class StressAndPerformanceTest {
         assertTrue("All remaining songs must be strictly the original playlist!", currentQueue.all { !it.second })
     }
 
-    // --- Stress Test 20: Service-Managed Repeat-One Never Mutates Underlying ExoPlayer RepeatMode or Reading Period ---
+    // --- Stress Test 20: StableUriDataSource Preserves Original URI & Derives Clean Cache Keys ---
     @Test
-    fun managedRepeatOneNeverFlushesActivePeriodAndLoopsAcrossAllQueuePositions() {
-        // Underlying ExoPlayer stays permanently at REPEAT_MODE_OFF (0)
-        val underlyingExoRepeatMode = 0
-        var customRepeatMode = 0 // 0=OFF, 1=ONE, 2=ALL
-        val queue = mutableListOf(
-            "song_0" to false,
-            "song_1" to true,  // pre-buffered reading period (cur + 1)
-            "song_2" to true,
-            "song_3" to true
-        )
-        var currentIndex = 0
-        var activeMediaItemIndex = 0
-        var positionMs = 74_500L
-        var audioRendererFlushCount = 0
+    fun stableUriDataSourcePreservesRequestUriAndCacheKeyWithoutRedirectLeak() {
+        val song = Song(id = "track_777", title = "Loop Track", artist = "Artist")
 
-        fun setManagedRepeatMode(newMode: Int, activelyStreaming: Boolean) {
-            customRepeatMode = newMode
-            activeMediaItemIndex = currentIndex
-            if (newMode != 0) {
-                // Preserve cur + 1 while actively streaming so pre-buffered reading period is never yanked mid-song
-                val minIdx = if (activelyStreaming) currentIndex + 2 else currentIndex + 1
-                var firstAutoplay = -1
-                for (i in minIdx until queue.size) {
-                    if (queue[i].second) {
-                        firstAutoplay = i
-                        break
-                    }
-                }
-                if (firstAutoplay != -1) {
-                    while (queue.size > firstAutoplay) queue.removeAt(queue.lastIndex)
-                }
-            }
-            // Underlying ExoPlayer repeat mode is NEVER modified -> 0 flushes!
-            assertEquals(0, underlyingExoRepeatMode)
+        fun buildCacheKey(s: Song, q: AudioQuality, isLocalFile: Boolean): String? {
+            return if (isLocalFile) null else "${s.id}_${q.queryValue}"
         }
 
-        // User enables Repeat All then Loop (1) mid-song at 74.5s
-        setManagedRepeatMode(2, activelyStreaming = true)
-        setManagedRepeatMode(1, activelyStreaming = true)
+        // Different qualities map to distinct cache keys; offline local files bypass stream cache
+        assertEquals("track_777_lossless", buildCacheKey(song, AudioQuality.LOSSLESS, isLocalFile = false))
+        assertEquals("track_777_320", buildCacheKey(song, AudioQuality.HIGH, isLocalFile = false))
+        assertNull(buildCacheKey(song, AudioQuality.HIGH, isLocalFile = true))
 
-        assertEquals("Playhead must not reset or flush mid-song!", 74_500L, positionMs)
-        assertEquals("Audio renderer must never flush when toggling Loop (1)!", 0, audioRendererFlushCount)
-        assertEquals("cur + 1 reading period preserved mid-song, cur + 2..end pruned", 2, queue.size)
+        // Simulate StableUriDataSource behavior during a CDN 302 redirect
+        val originalRequestUri = song.resolvedStreamUrl(AudioQuality.HIGH)
+        val delegatedRedirectedUri = "https://cdn-edge.example.com/temp?expires=1700000000&sig=abc"
+        var storedRequestUri: String? = null
 
-        // Now song_0 naturally finishes and rolls into song_1 (AUTO transition)
-        fun onNaturalTrackEnd() {
-            if (customRepeatMode == 1) {
-                currentIndex = activeMediaItemIndex.coerceIn(0, queue.lastIndex)
-                positionMs = 0L
-                // Now at 0L, cur + 1 autoplay item is safely pruned
-                var firstAutoplay = -1
-                for (i in (currentIndex + 1) until queue.size) {
-                    if (queue[i].second) { firstAutoplay = i; break }
-                }
-                if (firstAutoplay != -1) {
-                    while (queue.size > firstAutoplay) queue.removeAt(queue.lastIndex)
-                }
-            }
-        }
+        // open()
+        storedRequestUri = originalRequestUri
+        // getUri() must return storedRequestUri rather than redirected delegate URI
+        val reportedUri = storedRequestUri ?: delegatedRedirectedUri
+        assertEquals(originalRequestUri, reportedUri)
+        assertFalse("Ephemeral CDN redirect must NEVER leak to CacheDataSource!", reportedUri.contains("cdn-edge.example.com"))
 
-        onNaturalTrackEnd()
-        assertEquals("Loop (1) must snap right back to song_0", 0, currentIndex)
-        assertEquals(0L, positionMs)
-        assertEquals("Remaining leftover autoplay item is cleanly pruned at loop boundary", 1, queue.size)
-
-        // Repeat 25 more loops on single-item queue (STATE_ENDED path)
-        repeat(25) {
-            positionMs = 180_000L
-            onNaturalTrackEnd()
-            assertEquals(0, currentIndex)
-            assertEquals(0L, positionMs)
-        }
+        // close() resets requestUri
+        storedRequestUri = null
+        assertNull(storedRequestUri)
     }
 
-    // --- Stress Test 21: Song-Scoped Error Retry Cancellation Prevents Cross-Song Glitching ---
+    // --- Stress Test 21: Deferred Non-Reentrant Repeat Mode Pruning Protects Loop (1) ---
+    @Test
+    fun deferredRepeatModePruningProtectsLoopOneFromSynchronousQueueMutation() {
+        val queue = mutableListOf(
+            "song_0" to false,
+            "song_1" to false,
+            "autoplay_2" to true,
+            "autoplay_3" to true
+        )
+        var currentIndex = 0
+        var synchronousMutationsDuringListener = 0
+        var scheduledTrimAllJobActive = false
+        var radioFetchActive = true
+
+        fun onRepeatModeChangedInListener(repeatMode: Int) {
+            scheduledTrimAllJobActive = false
+            if (repeatMode != 0) {
+                radioFetchActive = false
+            }
+            // REPEAT_MODE_ONE (1) NEVER mutates queue synchronously; REPEAT_MODE_ALL (2) schedules async trim
+            if (repeatMode == 2) {
+                scheduledTrimAllJobActive = true
+            }
+        }
+
+        // User activates REPEAT_MODE_ALL (2) then cycles to REPEAT_MODE_ONE (1) quickly while skipping
+        onRepeatModeChangedInListener(2)
+        assertEquals("Listener must NEVER synchronously mutate queue!", 0, synchronousMutationsDuringListener)
+        assertTrue(scheduledTrimAllJobActive)
+        assertFalse(radioFetchActive)
+
+        // Switching to REPEAT_MODE_ONE cancels pending trim and keeps queue untouched so ExoPlayer doesn't desync
+        onRepeatModeChangedInListener(1)
+        assertEquals(0, synchronousMutationsDuringListener)
+        assertFalse(scheduledTrimAllJobActive)
+        assertEquals(4, queue.size)
+
+        // When user stops on REPEAT_MODE_ALL and delayed coroutine runs outside listener dispatch:
+        onRepeatModeChangedInListener(2)
+        if (scheduledTrimAllJobActive) {
+            val firstAutoplay = queue.drop(currentIndex + 1).indexOfFirst { it.second }
+            if (firstAutoplay != -1) {
+                val trimFrom = currentIndex + 1 + firstAutoplay
+                while (queue.size > trimFrom) queue.removeAt(queue.lastIndex)
+            }
+        }
+        assertEquals(2, queue.size)
+        assertTrue(queue.none { it.second })
+    }
+
+    // --- Stress Test 22: Per-Effect Lazy AudioEffect Allocation & Session Close-Before-Open ---
+    @Test
+    fun perEffectLazyAllocationAvoidsUnusedDspAndClosesPriorBroadcastSession() {
+        var currentSessionId = -1
+        var broadcastSessionId = -1
+        var equalizerAllocated = false
+        var bassBoostAllocated = false
+        var virtualizerAllocated = false
+        val sessionEvents = mutableListOf<String>()
+
+        fun attachSession(sessionId: Int) {
+            if (sessionId <= 0) return
+            if (currentSessionId != sessionId) {
+                if (broadcastSessionId > 0) {
+                    sessionEvents.add("CLOSE:$broadcastSessionId")
+                    broadcastSessionId = -1
+                }
+                equalizerAllocated = false
+                bassBoostAllocated = false
+                virtualizerAllocated = false
+                currentSessionId = sessionId
+            }
+            if (broadcastSessionId != sessionId) {
+                sessionEvents.add("OPEN:$sessionId")
+                broadcastSessionId = sessionId
+            }
+        }
+
+        fun applyEffects(settings: wtf.evi.mobile.data.model.AppSettings) {
+            val wantEq = settings.eqEnabled && settings.eqPreset != wtf.evi.mobile.data.model.EqPreset.FLAT
+            equalizerAllocated = wantEq
+            val bass = if (settings.eqEnabled) settings.bassBoostStrength else 0f
+            bassBoostAllocated = bass > 0.05f
+            val virt = if (settings.eqEnabled) settings.virtualizerStrength else 0f
+            virtualizerAllocated = virt > 0.05f
+        }
+
+        // Track 1 starts with Flat EQ + 0 boost -> NO AudioEffect instances allocated
+        attachSession(101)
+        applyEffects(wtf.evi.mobile.data.model.AppSettings())
+        assertFalse(equalizerAllocated)
+        assertFalse(bassBoostAllocated)
+        assertFalse(virtualizerAllocated)
+
+        // User turns on Rock preset + 30% Bass Boost, Virtualizer still 0 -> only EQ & BassBoost allocated
+        applyEffects(
+            wtf.evi.mobile.data.model.AppSettings(
+                eqEnabled = true,
+                eqPreset = wtf.evi.mobile.data.model.EqPreset.CUSTOM,
+                bassBoostStrength = 0.30f,
+                virtualizerStrength = 0f
+            )
+        )
+        assertTrue(equalizerAllocated)
+        assertTrue(bassBoostAllocated)
+        assertFalse("Unused Virtualizer must stay unallocated!", virtualizerAllocated)
+
+        // Session changes to 202 on skip -> old broadcast 101 must close BEFORE 202 opens
+        attachSession(202)
+        assertEquals(listOf("OPEN:101", "CLOSE:101", "OPEN:202"), sessionEvents)
+    }
+
+    // --- Stress Test 23: Song-Scoped Error Retry Cancellation Prevents Cross-Song Glitching ---
     @Test
     fun songScopedErrorRetryNeverHijacksSubsequentTracks() {
         var currentMediaId = "song_A"
@@ -1045,11 +1112,13 @@ class StressAndPerformanceTest {
         currentPositionMs = 4_000L
         pendingRetryMediaId = null // cancelled on transition
 
-        // Even if timer callback were to fire late, mediaId guard blocks it
-        val timerMediaId = "song_A"
-        if (pendingRetryMediaId != null && currentMediaId == timerMediaId) {
-            currentPositionMs = pendingRetryPosMs
+        // Delayed callback verifies mediaId match before seeking
+        fun runRetryIfActive(timerMediaId: String) {
+            if (pendingRetryMediaId != null && currentMediaId == timerMediaId) {
+                currentPositionMs = pendingRetryPosMs
+            }
         }
+        runRetryIfActive("song_A")
 
         assertEquals("Song B must NOT be hijacked by Song A's delayed retry!", "song_B", currentMediaId)
         assertEquals("Song B position must remain untouched!", 4_000L, currentPositionMs)

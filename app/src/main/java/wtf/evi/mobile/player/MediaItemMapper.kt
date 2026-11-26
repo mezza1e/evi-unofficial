@@ -67,7 +67,8 @@ object MediaItemMapper {
             metadataBuilder.setArtworkUri(Uri.parse(artUrl))
         }
 
-        val finalUri = if (localAudioFile != null && localAudioFile.exists() && localAudioFile.length() > 0L) {
+        val isLocal = localAudioFile != null && localAudioFile.exists() && localAudioFile.length() > 1024L
+        val finalUri = if (isLocal) {
             Uri.fromFile(localAudioFile)
         } else {
             Uri.parse(song.resolvedStreamUrl(quality))
@@ -76,6 +77,7 @@ object MediaItemMapper {
         return MediaItem.Builder()
             .setMediaId(song.id)
             .setUri(finalUri)
+            .setCustomCacheKey(if (isLocal) null else "${song.id}_${quality.queryValue}")
             .setMediaMetadata(metadataBuilder.build())
             .build()
     }

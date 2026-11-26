@@ -7,9 +7,9 @@ import sys
 
 owner = "mezza1e"
 repo = "evi-unofficial"
-tag_name = "v1.0.2"
-release_title = "Evi Unofficial v1.0.2"
-apk_name = "Evi-Unofficial-1.0.2.apk"
+tag_name = "v1.0.3"
+release_title = "Evi Unofficial v1.0.3"
+apk_name = "Evi-Unofficial-1.0.3.apk"
 apk_path = os.path.join(os.path.dirname(__file__), apk_name)
 
 if not os.path.exists(apk_path):
@@ -47,16 +47,16 @@ headers = {
 }
 
 # 3. Prepare Release Description
-release_body = f"""## 🎵 Evi Unofficial v1.0.2
+release_body = f"""## 🎵 Evi Unofficial v1.0.3
 
-Critical playback engine update eliminating Loop (1) (`REPEAT_MODE_ONE`) stream glitches, cross-song retry interference, and stale disk cache corruption.
+Major playback engine upgrade fixing Loop (1) (`REPEAT_MODE_ONE`) rollover bleed, post-skip loop breakage, and audio quality degradation.
 
-### 🐛 Playback Engine Fixes:
-- 🔁 **Zero-Flush Service-Managed Loop (1) Engine**: Replaced ExoPlayer's internal `REPEAT_MODE_ONE` queue mutation (which tore down pre-buffered periods mid-song, forced `seekToCurrentPosition(true)` codec flushes, and opened duplicate concurrent stream connections on the same track URL) with a non-disruptive service-managed repeat controller. Enabling Loop (1) now has zero effect on the active audio buffer mid-song.
-- 🧹 **Eliminated Stale Stream Cache (`SimpleCache`) Corruption**: Removed `CacheDataSource` wrapping on dynamic stream URLs (which persisted expired presigned redirect URLs and partial chunked spans across app restarts) and automatically purges legacy `media_cache` directories on launch.
-- 🛡️ **Song-Scoped Error Retry Cancellation**: Delayed network retry coroutines are now strictly scoped to the failing track ID and cancelled immediately on track change, preventing failed track retries from seeking or interrupting other songs.
-- 🎛️ **Bit-Perfect Flat EQ Bypass**: Bypasses OEM `AudioEffect` instances when Equalizer is flat with zero boost/virtualizer, and never falls back to deprecated global audio session `0`.
-- 🖼️ **Offline Artwork & Integrity Validation**: Added local `file://` artwork decoding in `OkHttpBitmapLoader` and `Content-Type` validation in `DownloadManager`.
+### 🐛 Playback Engine & Audio Fixes:
+- 🚀 **Upgraded to AndroidX Media3 1.9.4**: Incorporates upstream fix (`androidx/media#3016`) for `ProgressiveMediaSource` timeline thrashing under `REPEAT_MODE_ONE`, plus `Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING` and constant-bitrate seeking for frame-accurate gapless looping.
+- 🔁 **True Native Gapless Loop (1)**: Removed the main-thread manual seek workaround so audio frames repeat natively in ExoPlayer's render pipeline with zero next-song audio bleed. Explicit "Next" skips cleanly advance while keeping Loop (1) active on the new track.
+- ⚡ **Stable Stream Caching (`StableUriDataSource`)**: Restored `CacheDataSource` (`stream_cache_v2`) keyed by `"{{songId}}_{{quality}}"` while pinning `getUri()` to the original request URL so expiring CDN 302 redirects are never persisted as `exo_redir` entries, and evicting cache keys automatically on playback errors.
+- 🎛️ **Clean Hardware AudioEffect Lifecycle**: Per-effect lazy allocation (only instantiates `Equalizer`, `BassBoost`, or `Virtualizer` when non-flat/non-zero), closing old control sessions cleanly before opening new ones to keep the audio path bit-clean.
+- 🛡️ **Standard `ForwardingPlayer` & Deferred Queue Pruning**: Eliminated custom `Player.Listener` wrapper desyncs across `MediaSession` and deferred autoplay pruning on `REPEAT_MODE_ALL` outside listener dispatch.
 
 ### 🔒 Security & Verification:
 - Built and scanned via GitHub Actions (CodeQL passed with 0 vulnerabilities).

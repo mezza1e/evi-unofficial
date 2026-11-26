@@ -237,7 +237,17 @@ class PlaybackController(
     }
 
     fun skipNext() {
-        controller?.seekToNext()
+        val mc = controller ?: return
+        if (mc.repeatMode == Player.REPEAT_MODE_ONE && mc.mediaItemCount > 1) {
+            val nextIdx = mc.currentTimeline
+                .getNextWindowIndex(mc.currentMediaItemIndex, Player.REPEAT_MODE_ALL, mc.shuffleModeEnabled)
+                .takeIf { it != androidx.media3.common.C.INDEX_UNSET && it in 0 until mc.mediaItemCount }
+                ?: ((mc.currentMediaItemIndex + 1) % mc.mediaItemCount)
+            mc.seekTo(nextIdx, 0L)
+            mc.play()
+            return
+        }
+        mc.seekToNext()
     }
 
     fun skipPrevious() {
