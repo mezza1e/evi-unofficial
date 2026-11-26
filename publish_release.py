@@ -7,9 +7,9 @@ import sys
 
 owner = "mezza1e"
 repo = "evi-unofficial"
-tag_name = "v1.0.1"
-release_title = "Evi Unofficial v1.0.1"
-apk_name = "Evi-Unofficial-1.0.1.apk"
+tag_name = "v1.0.2"
+release_title = "Evi Unofficial v1.0.2"
+apk_name = "Evi-Unofficial-1.0.2.apk"
 apk_path = os.path.join(os.path.dirname(__file__), apk_name)
 
 if not os.path.exists(apk_path):
@@ -47,17 +47,16 @@ headers = {
 }
 
 # 3. Prepare Release Description
-release_body = f"""## 🎵 Evi Unofficial v1.0.1
+release_body = f"""## 🎵 Evi Unofficial v1.0.2
 
-Hotfix release addressing offline playback resolution and repeat loop handling.
+Critical playback engine update eliminating Loop (1) (`REPEAT_MODE_ONE`) stream glitches, cross-song retry interference, and stale disk cache corruption.
 
-### 🐛 Bug Fixes & Improvements:
-- ⚡ **Offline Playback Scheme Resolution**: Resolved an issue where downloaded offline songs (`file://`) could not be resolved by OkHttp upstream data sources, causing playback errors on offline tracks that persisted across app restarts.
-- 🔁 **Loop Mode (Repeat-One) Infinite Retry Guard**: Protected playback error handling to prevent rapid retry loops and stuttering when repeat-one mode is active on an unavailable track.
-- 🌐 **Seamless Streaming Fallback**: If a locally downloaded offline file fails to read or becomes corrupted, ExoPlayer automatically falls back to streaming from the server without crashing.
-- ⏭️ **Smart Track Advance**: In repeat-one mode, explicitly pressing "Next" now advances to the next track in the playlist instead of restarting the same song.
-- 🗑️ **Playlist Management**: Remove songs from playlists with confirmation and dropdown selection menus.
-- 🎛️ **Audio Equalizer**: Hardware presets and 32-bit float audio compatibility.
+### 🐛 Playback Engine Fixes:
+- 🔁 **Zero-Flush Service-Managed Loop (1) Engine**: Replaced ExoPlayer's internal `REPEAT_MODE_ONE` queue mutation (which tore down pre-buffered periods mid-song, forced `seekToCurrentPosition(true)` codec flushes, and opened duplicate concurrent stream connections on the same track URL) with a non-disruptive service-managed repeat controller. Enabling Loop (1) now has zero effect on the active audio buffer mid-song.
+- 🧹 **Eliminated Stale Stream Cache (`SimpleCache`) Corruption**: Removed `CacheDataSource` wrapping on dynamic stream URLs (which persisted expired presigned redirect URLs and partial chunked spans across app restarts) and automatically purges legacy `media_cache` directories on launch.
+- 🛡️ **Song-Scoped Error Retry Cancellation**: Delayed network retry coroutines are now strictly scoped to the failing track ID and cancelled immediately on track change, preventing failed track retries from seeking or interrupting other songs.
+- 🎛️ **Bit-Perfect Flat EQ Bypass**: Bypasses OEM `AudioEffect` instances when Equalizer is flat with zero boost/virtualizer, and never falls back to deprecated global audio session `0`.
+- 🖼️ **Offline Artwork & Integrity Validation**: Added local `file://` artwork decoding in `OkHttpBitmapLoader` and `Content-Type` validation in `DownloadManager`.
 
 ### 🔒 Security & Verification:
 - Built and scanned via GitHub Actions (CodeQL passed with 0 vulnerabilities).

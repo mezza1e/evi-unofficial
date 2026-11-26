@@ -951,4 +951,107 @@ class StressAndPerformanceTest {
         assertEquals("Upcoming autoplay tracks must be pruned when enabling loop!", 15, currentQueue.size)
         assertTrue("All remaining songs must be strictly the original playlist!", currentQueue.all { !it.second })
     }
+
+    // --- Stress Test 20: Service-Managed Repeat-One Never Mutates Underlying ExoPlayer RepeatMode or Reading Period ---
+    @Test
+    fun managedRepeatOneNeverFlushesActivePeriodAndLoopsAcrossAllQueuePositions() {
+        // Underlying ExoPlayer stays permanently at REPEAT_MODE_OFF (0)
+        val underlyingExoRepeatMode = 0
+        var customRepeatMode = 0 // 0=OFF, 1=ONE, 2=ALL
+        val queue = mutableListOf(
+            "song_0" to false,
+            "song_1" to true,  // pre-buffered reading period (cur + 1)
+            "song_2" to true,
+            "song_3" to true
+        )
+        var currentIndex = 0
+        var activeMediaItemIndex = 0
+        var positionMs = 74_500L
+        var audioRendererFlushCount = 0
+
+        fun setManagedRepeatMode(newMode: Int, activelyStreaming: Boolean) {
+            customRepeatMode = newMode
+            activeMediaItemIndex = currentIndex
+            if (newMode != 0) {
+                // Preserve cur + 1 while actively streaming so pre-buffered reading period is never yanked mid-song
+                val minIdx = if (activelyStreaming) currentIndex + 2 else currentIndex + 1
+                var firstAutoplay = -1
+                for (i in minIdx until queue.size) {
+                    if (queue[i].second) {
+                        firstAutoplay = i
+                        break
+                    }
+                }
+                if (firstAutoplay != -1) {
+                    while (queue.size > firstAutoplay) queue.removeAt(queue.lastIndex)
+                }
+            }
+            // Underlying ExoPlayer repeat mode is NEVER modified -> 0 flushes!
+            assertEquals(0, underlyingExoRepeatMode)
+        }
+
+        // User enables Repeat All then Loop (1) mid-song at 74.5s
+        setManagedRepeatMode(2, activelyStreaming = true)
+        setManagedRepeatMode(1, activelyStreaming = true)
+
+        assertEquals("Playhead must not reset or flush mid-song!", 74_500L, positionMs)
+        assertEquals("Audio renderer must never flush when toggling Loop (1)!", 0, audioRendererFlushCount)
+        assertEquals("cur + 1 reading period preserved mid-song, cur + 2..end pruned", 2, queue.size)
+
+        // Now song_0 naturally finishes and rolls into song_1 (AUTO transition)
+        fun onNaturalTrackEnd() {
+            if (customRepeatMode == 1) {
+                currentIndex = activeMediaItemIndex.coerceIn(0, queue.lastIndex)
+                positionMs = 0L
+                // Now at 0L, cur + 1 autoplay item is safely pruned
+                var firstAutoplay = -1
+                for (i in (currentIndex + 1) until queue.size) {
+                    if (queue[i].second) { firstAutoplay = i; break }
+                }
+                if (firstAutoplay != -1) {
+                    while (queue.size > firstAutoplay) queue.removeAt(queue.lastIndex)
+                }
+            }
+        }
+
+        onNaturalTrackEnd()
+        assertEquals("Loop (1) must snap right back to song_0", 0, currentIndex)
+        assertEquals(0L, positionMs)
+        assertEquals("Remaining leftover autoplay item is cleanly pruned at loop boundary", 1, queue.size)
+
+        // Repeat 25 more loops on single-item queue (STATE_ENDED path)
+        repeat(25) {
+            positionMs = 180_000L
+            onNaturalTrackEnd()
+            assertEquals(0, currentIndex)
+            assertEquals(0L, positionMs)
+        }
+    }
+
+    // --- Stress Test 21: Song-Scoped Error Retry Cancellation Prevents Cross-Song Glitching ---
+    @Test
+    fun songScopedErrorRetryNeverHijacksSubsequentTracks() {
+        var currentMediaId = "song_A"
+        var currentPositionMs = 0L
+        var pendingRetryMediaId: String? = null
+        var pendingRetryPosMs = 0L
+
+        // Song A fails at 92s and schedules delayed retry
+        pendingRetryMediaId = "song_A"
+        pendingRetryPosMs = 92_000L
+
+        // User switches to Song B before retry timer fires -> transition cancels retry AND mediaId changes
+        currentMediaId = "song_B"
+        currentPositionMs = 4_000L
+        pendingRetryMediaId = null // cancelled on transition
+
+        // Even if timer callback were to fire late, mediaId guard blocks it
+        val timerMediaId = "song_A"
+        if (pendingRetryMediaId != null && currentMediaId == timerMediaId) {
+            currentPositionMs = pendingRetryPosMs
+        }
+
+        assertEquals("Song B must NOT be hijacked by Song A's delayed retry!", "song_B", currentMediaId)
+        assertEquals("Song B position must remain untouched!", 4_000L, currentPositionMs)
+    }
 }

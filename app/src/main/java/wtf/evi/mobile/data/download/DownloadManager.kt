@@ -80,7 +80,9 @@ class DownloadManager(
                 .build()
 
             httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
+                val contentType = response.header("Content-Type")?.lowercase().orEmpty()
+                val isErrorPayload = contentType.contains("text/html") || contentType.contains("application/json")
+                if (!response.isSuccessful || isErrorPayload) {
                     downloadStore.updateProgress(song.id, null)
                     tempFile.delete()
                     return@withContext
