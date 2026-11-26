@@ -8,7 +8,6 @@ import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.Virtualizer
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.annotation.OptIn
@@ -19,18 +18,9 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DataSource
-import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.TransferListener
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.extractor.DefaultExtractorsFactory
-import androidx.media3.extractor.mp3.Mp3Extractor
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -52,7 +42,6 @@ import wtf.evi.mobile.EviApplication
 import wtf.evi.mobile.MainActivity
 import wtf.evi.mobile.R
 import wtf.evi.mobile.data.model.AppSettings
-import wtf.evi.mobile.data.model.EVI_USER_AGENT
 import wtf.evi.mobile.data.model.EqPreset
 import wtf.evi.mobile.data.model.Song
 
@@ -80,42 +69,6 @@ class EviPlaybackService : MediaSessionService() {
     private var lastSongFractionRef: Song? = null
     private var lastSongPositionMs: Long = 0L
 
-    /**
-     * Wraps [OkHttpDataSource] so [getUri] always reports the original request URI rather than
-     * any ephemeral CDN 302 redirect target. Prevents [CacheDataSource] from persisting expiring
-     * redirect URLs (`exo_redir`) into `SimpleCache` metadata.
-     */
-    private class StableUriDataSource(
-        private val delegate: DataSource
-    ) : DataSource {
-        private var requestUri: Uri? = null
-
-        override fun addTransferListener(transferListener: TransferListener) {
-            delegate.addTransferListener(transferListener)
-        }
-
-        override fun open(dataSpec: DataSpec): Long {
-            requestUri = dataSpec.uri
-            return delegate.open(dataSpec)
-        }
-
-        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-            return delegate.read(buffer, offset, length)
-        }
-
-        override fun getUri(): Uri? = requestUri ?: delegate.uri
-
-        override fun getResponseHeaders(): Map<String, List<String>> = delegate.responseHeaders
-
-        override fun close() {
-            try {
-                delegate.close()
-            } finally {
-                requestUri = null
-            }
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         container = (application as EviApplication).container
@@ -128,28 +81,11 @@ class EviPlaybackService : MediaSessionService() {
         notificationProvider.setSmallIcon(R.drawable.ic_notification)
         setMediaNotificationProvider(notificationProvider)
 
-        val okHttpFactory = OkHttpDataSource.Factory(container.streamingHttpClient)
-            .setUserAgent(EVI_USER_AGENT)
-
-        val upstreamHttpFactory = DataSource.Factory {
-            StableUriDataSource(okHttpFactory.createDataSource())
-        }
-
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(container.streamCache)
-            .setUpstreamDataSourceFactory(upstreamHttpFactory)
-            .setFlags(
-                CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR or
-                    CacheDataSource.FLAG_IGNORE_CACHE_FOR_UNSET_LENGTH_REQUESTS
-            )
-
-        // Outer DefaultDataSource routes file:// offline downloads directly to FileDataSource
-        // and https:// streams to CacheDataSource.
-        val dataSourceFactory = DefaultDataSource.Factory(this, cacheDataSourceFactory)
-
-        val extractorsFactory = DefaultExtractorsFactory()
-            .setConstantBitrateSeekingEnabled(true)
-            .setMp3ExtractorFlags(Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING)
+        val mediaSourceFactory = EviMediaSourceSupport.buildMediaSourceFactory(
+            context = this,
+            streamingHttpClient = container.streamingHttpClient,
+            streamCache = container.streamCache
+        )
 
         val audioAttributes = AudioAttributes.Builder()
             .setUsage(C.USAGE_MEDIA)
@@ -164,7 +100,7 @@ class EviPlaybackService : MediaSessionService() {
                 /* bufferForPlaybackAfterRebufferMs = */ 3_000
             )
             .setBackBuffer(
-                /* backBufferDurationMs = */ 60_000,
+                /* backBufferDurationMs = */ 120_000,
                 /* retainBackBufferFromKeyframe = */ true
             )
             .setPrioritizeTimeOverSizeThresholds(true)
@@ -176,7 +112,7 @@ class EviPlaybackService : MediaSessionService() {
             .setEnableAudioFloatOutput(false)
 
         exoPlayer = ExoPlayer.Builder(this, renderersFactory)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
@@ -634,6 +570,27 @@ class EviPlaybackService : MediaSessionService() {
             }
         }
 
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // If an auto-transition happened far before a remote track's known duration (e.g. a
+            // prematurely truncated stream around 10s), evict the cached spans so repeat/replay
+            // fetches a clean stream instead of looping a truncated cache entry.
+            if (reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
+                val oldItem = oldPosition.mediaItem
+                val cacheKey = oldItem?.localConfiguration?.customCacheKey
+                val isRemote = oldItem?.localConfiguration?.uri?.scheme != "file"
+                val expectedMs = oldItem?.mediaMetadata?.durationMs ?: 0L
+                if (isRemote && !cacheKey.isNullOrBlank() && expectedMs >= 15_000L &&
+                    oldPosition.positionMs in 1L until (expectedMs * 0.65).toLong()
+                ) {
+                    runCatching { container.streamCache.removeResource(cacheKey) }
+                }
+            }
+        }
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             errorRetryJob?.cancel()
             errorRetryJob = null
@@ -747,7 +704,7 @@ class EviPlaybackService : MediaSessionService() {
                 errorRetryCount++
                 val retryAttempt = errorRetryCount
                 val failedMediaId = currentItem.mediaId
-                val targetPos = if (retryAttempt == 1) lastSongPositionMs.coerceAtLeast(0L) else 0L
+                val targetPos = exoPlayer.currentPosition.coerceAtLeast(lastSongPositionMs).coerceAtLeast(0L)
                 errorRetryJob = serviceScope.launch {
                     delay(650L * retryAttempt)
                     if (exoPlayer.currentMediaItem?.mediaId == failedMediaId && exoPlayer.playWhenReady) {

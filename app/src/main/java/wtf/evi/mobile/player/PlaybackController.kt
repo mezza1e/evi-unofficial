@@ -95,7 +95,13 @@ class PlaybackController(
                         actualPos
                     }
 
-                    val dur = mc.duration.takeIf { it > 0L } ?: (cur.currentSong?.durationMs ?: 0L)
+                    val metaDur = cur.currentSong?.durationMs ?: 0L
+                    val prevDur = if (cur.currentSong?.id == _state.value.currentSong?.id) cur.durationMs else 0L
+                    val dur = EviMediaSourceSupport.resolveEffectiveDurationMs(
+                        playerDurationMs = mc.duration,
+                        metadataDurationMs = metaDur,
+                        previousDurationMs = prevDur
+                    )
                     _state.value = cur.copy(
                         positionMs = effectivePos,
                         seekPendingPositionMs = pendingSeekTargetMs,
@@ -120,7 +126,13 @@ class PlaybackController(
         }
         val currentIdx = mc.currentMediaItemIndex.takeIf { it in queue.indices } ?: -1
         val currentSong = MediaItemMapper.fromMediaItem(mc.currentMediaItem)
-        val dur = mc.duration.takeIf { it > 0L } ?: (currentSong?.durationMs ?: 0L)
+        val prevState = _state.value
+        val prevDurForSameSong = if (prevState.currentSong?.id == currentSong?.id) prevState.durationMs else 0L
+        val dur = EviMediaSourceSupport.resolveEffectiveDurationMs(
+            playerDurationMs = mc.duration,
+            metadataDurationMs = currentSong?.durationMs ?: 0L,
+            previousDurationMs = prevDurForSameSong
+        )
         val targetMs = pendingSeekTargetMs
         val now = System.currentTimeMillis()
         val actualPos = mc.currentPosition.coerceAtLeast(0L)

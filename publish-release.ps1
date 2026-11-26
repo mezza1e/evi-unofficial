@@ -4,9 +4,9 @@
 # ==============================================================================
 
 param(
-    [string]$TagName = "v1.0.3",
-    [string]$ReleaseTitle = "Evi Unofficial v1.0.3",
-    [string]$ApkName = "Evi-Unofficial-1.0.3.apk",
+    [string]$TagName = "v1.0.4",
+    [string]$ReleaseTitle = "Evi Unofficial v1.0.4",
+    [string]$ApkName = "Evi-Unofficial-1.0.4.apk",
     [string]$Owner = "mezza1e",
     [string]$Repo = "evi-unofficial"
 )

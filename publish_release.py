@@ -7,9 +7,9 @@ import sys
 
 owner = "mezza1e"
 repo = "evi-unofficial"
-tag_name = "v1.0.3"
-release_title = "Evi Unofficial v1.0.3"
-apk_name = "Evi-Unofficial-1.0.3.apk"
+tag_name = "v1.0.4"
+release_title = "Evi Unofficial v1.0.4"
+apk_name = "Evi-Unofficial-1.0.4.apk"
 apk_path = os.path.join(os.path.dirname(__file__), apk_name)
 
 if not os.path.exists(apk_path):
@@ -47,19 +47,19 @@ headers = {
 }
 
 # 3. Prepare Release Description
-release_body = f"""## 🎵 Evi Unofficial v1.0.3
+release_body = f"""## 🎵 Evi Unofficial v1.0.4
 
-Major playback engine upgrade fixing Loop (1) (`REPEAT_MODE_ONE`) rollover bleed, post-skip loop breakage, and audio quality degradation.
+Fixes the Loop (1) (`REPEAT_MODE_ONE`) mid-song random restart and bogus 10-second duration glitch, verified with real `ExoPlayer` + `SimpleCache` + `OkHttpDataSource` + `MockWebServer` integration and stress tests.
 
-### 🐛 Playback Engine & Audio Fixes:
-- 🚀 **Upgraded to AndroidX Media3 1.9.4**: Incorporates upstream fix (`androidx/media#3016`) for `ProgressiveMediaSource` timeline thrashing under `REPEAT_MODE_ONE`, plus `Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING` and constant-bitrate seeking for frame-accurate gapless looping.
-- 🔁 **True Native Gapless Loop (1)**: Removed the main-thread manual seek workaround so audio frames repeat natively in ExoPlayer's render pipeline with zero next-song audio bleed. Explicit "Next" skips cleanly advance while keeping Loop (1) active on the new track.
-- ⚡ **Stable Stream Caching (`StableUriDataSource`)**: Restored `CacheDataSource` (`stream_cache_v2`) keyed by `"{{songId}}_{{quality}}"` while pinning `getUri()` to the original request URL so expiring CDN 302 redirects are never persisted as `exo_redir` entries, and evicting cache keys automatically on playback errors.
-- 🎛️ **Clean Hardware AudioEffect Lifecycle**: Per-effect lazy allocation (only instantiates `Equalizer`, `BassBoost`, or `Virtualizer` when non-flat/non-zero), closing old control sessions cleanly before opening new ones to keep the audio path bit-clean.
-- 🛡️ **Standard `ForwardingPlayer` & Deferred Queue Pruning**: Eliminated custom `Player.Listener` wrapper desyncs across `MediaSession` and deferred autoplay pruning on `REPEAT_MODE_ALL` outside listener dispatch.
+### 🐛 Playback Engine & Loop (1) Fixes:
+- ⏱️ **Duration & Seekbar Guard (`DurationGuardedMediaSource`)**: Prevents chunked HTTP streams (unknown `Content-Length`) from being misclassified as live or overwritten to a bogus ~10s duration when preloading or transitioning periods under `REPEAT_MODE_ONE`, paired with `PlaybackController` duration anchoring.
+- 💾 **Working Stream Caching (`CacheDataSource`)**: Removed `CacheDataSource.FLAG_IGNORE_CACHE_FOR_UNSET_LENGTH_REQUESTS` (which bypassed `SimpleCache` on every progressive ExoPlayer request because `DataSpec.length == C.LENGTH_UNSET`) and configured 2MB cache fragments, so looping tracks reuse cached spans cleanly without redundant HTTP connections.
+- 🔁 **Constant-Bitrate Seeking Without `IndexSeeker` Corruption**: Replaced `Mp3Extractor.FLAG_ENABLE_INDEX_SEEKING` with `setConstantBitrateSeekingEnabled(true)` + `setConstantBitrateSeekingAlwaysEnabled(true)` so toggling `REPEAT_MODE_ONE` late in a track never clamps `seekToCurrentPosition` back to `0:00` or overwrites the timeline with partial EOF durations.
+- 🧹 **Auto-Evict Truncated Cache Spans**: Automatically evicts remote cache keys on unexpectedly short auto-transitions so incomplete stream responses can never poison repeat loops.
+- 🧪 **Real ExoPlayer Stress Test Suite (`PlaybackLoopReproductionTest`)**: Verified legacy bug reproduction vs fixed behavior, chunked multi-track `REPEAT_MODE_ONE` toggling, 302 redirect caching (`StableUriDataSource`), mixed offline/online queue skipping/scrubbing, and 5,000-case duration-guard fuzzing.
 
 ### 🔒 Security & Verification:
-- Built and scanned via GitHub Actions (CodeQL passed with 0 vulnerabilities).
+- Built and tested via `./gradlew testDebugUnitTest assembleRelease` (44/44 unit & ExoPlayer tests passed).
 - **File**: `{apk_name}`
 - **SHA-256 Checksum**:
   `{sha256_hash}`
