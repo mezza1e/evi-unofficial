@@ -38,18 +38,18 @@ Because Evi Unofficial is an unofficial client, security and transparency are pa
 
 Every release published in [GitHub Releases](../../releases) includes cryptographic SHA-256 checksums to prove the binary has not been modified or tampered with.
 
-### Latest Release: v0.1.29
-* **File**: `Evi-Unofficial-0.1.29.apk`
-* **SHA-256**: `BC9CB24FD19FA78248835E75E27CE444624971829EA7CAD23AD2C5A8BDC4117D`
+### Latest Release: v1.0.0
+* **File**: `Evi-Unofficial-1.0.0.apk`
+* **SHA-256**: `5E33C96C62CECA5C83053F0C4D5ADB7286F8FF13F5BA8F86104DCCE921221A9A`
 
 #### Verify on Windows (PowerShell):
 ```powershell
-Get-FileHash Evi-Unofficial-0.1.29.apk -Algorithm SHA256
+Get-FileHash Evi-Unofficial-1.0.0.apk -Algorithm SHA256
 ```
 
 #### Verify on Linux / macOS:
 ```bash
-sha256sum Evi-Unofficial-0.1.29.apk
+sha256sum Evi-Unofficial-1.0.0.apk
 ```
 
 You can also submit the APK directly to [VirusTotal.com](https://www.virustotal.com) to verify that 70+ antivirus engines report 0 detections.
@@ -89,7 +89,7 @@ cd evi-mobile
 ./gradlew assembleRelease
 ```
 The compiled, signed release APK will be generated at:
-`app/build/outputs/apk/release/Evi-Unofficial-0.1.29.apk`
+`app/build/outputs/apk/release/Evi-Unofficial-1.0.0.apk`
 
 ---
 
