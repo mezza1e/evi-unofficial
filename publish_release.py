@@ -7,9 +7,9 @@ import sys
 
 owner = "mezza1e"
 repo = "evi-unofficial"
-tag_name = "v1.0.0"
-release_title = "Evi Unofficial v1.0.0"
-apk_name = "Evi-Unofficial-1.0.0.apk"
+tag_name = "v1.0.1"
+release_title = "Evi Unofficial v1.0.1"
+apk_name = "Evi-Unofficial-1.0.1.apk"
 apk_path = os.path.join(os.path.dirname(__file__), apk_name)
 
 if not os.path.exists(apk_path):
@@ -47,16 +47,17 @@ headers = {
 }
 
 # 3. Prepare Release Description
-release_body = f"""## 🎵 Evi Unofficial v1.0.0
+release_body = f"""## 🎵 Evi Unofficial v1.0.1
 
-First official open-source release of Evi Unofficial for Android!
+Hotfix release addressing offline playback resolution and repeat loop handling.
 
-### ✨ Features & Fixes:
-- 🗑️ **Playlist Song Removal**: Direct delete button on playlist song rows with confirmation dialog.
-- 📑 **Playlist Picker**: "Remove from playlist..." and "Add to playlist" dropdown options with "Added" indicator badges.
-- 🎛️ **Audio Equalizer**: Fixed hardware bass boost, native presets, and 32-bit float audio compatibility.
-- 🔄 **Queue & Repeat Controls**: Strict boundary clamping on playlist repeats.
-- ⚡ **Offline Downloads**: High-speed multi-threaded audio caching and metadata persistence.
+### 🐛 Bug Fixes & Improvements:
+- ⚡ **Offline Playback Scheme Resolution**: Resolved an issue where downloaded offline songs (`file://`) could not be resolved by OkHttp upstream data sources, causing playback errors on offline tracks that persisted across app restarts.
+- 🔁 **Loop Mode (Repeat-One) Infinite Retry Guard**: Protected playback error handling to prevent rapid retry loops and stuttering when repeat-one mode is active on an unavailable track.
+- 🌐 **Seamless Streaming Fallback**: If a locally downloaded offline file fails to read or becomes corrupted, ExoPlayer automatically falls back to streaming from the server without crashing.
+- ⏭️ **Smart Track Advance**: In repeat-one mode, explicitly pressing "Next" now advances to the next track in the playlist instead of restarting the same song.
+- 🗑️ **Playlist Management**: Remove songs from playlists with confirmation and dropdown selection menus.
+- 🎛️ **Audio Equalizer**: Hardware presets and 32-bit float audio compatibility.
 
 ### 🔒 Security & Verification:
 - Built and scanned via GitHub Actions (CodeQL passed with 0 vulnerabilities).

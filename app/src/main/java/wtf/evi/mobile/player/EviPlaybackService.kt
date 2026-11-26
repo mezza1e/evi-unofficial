@@ -18,6 +18,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -85,9 +86,11 @@ class EviPlaybackService : MediaSessionService() {
         val okHttpFactory = OkHttpDataSource.Factory(container.streamingHttpClient)
             .setUserAgent(EVI_USER_AGENT)
 
+        val defaultDataSourceFactory = DefaultDataSource.Factory(this, okHttpFactory)
+
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(container.mediaCache)
-            .setUpstreamDataSourceFactory(okHttpFactory)
+            .setUpstreamDataSourceFactory(defaultDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
         val audioAttributes = AudioAttributes.Builder()
@@ -452,19 +455,21 @@ class EviPlaybackService : MediaSessionService() {
     }
 
     private fun trimUpcomingAutoplayTracks() {
-        val total = exoPlayer.mediaItemCount
-        val cur = exoPlayer.currentMediaItemIndex
-        if (cur < 0 || total <= cur + 1) return
+        runCatching {
+            val total = exoPlayer.mediaItemCount
+            val cur = exoPlayer.currentMediaItemIndex
+            if (cur < 0 || total <= cur + 1) return
 
-        var firstAutoplayIndex = -1
-        for (i in (cur + 1) until total) {
-            if (MediaItemMapper.isAutoplay(exoPlayer.getMediaItemAt(i))) {
-                firstAutoplayIndex = i
-                break
+            var firstAutoplayIndex = -1
+            for (i in (cur + 1) until total) {
+                if (MediaItemMapper.isAutoplay(exoPlayer.getMediaItemAt(i))) {
+                    firstAutoplayIndex = i
+                    break
+                }
             }
-        }
-        if (firstAutoplayIndex != -1) {
-            exoPlayer.removeMediaItems(firstAutoplayIndex, total)
+            if (firstAutoplayIndex != -1 && firstAutoplayIndex < total) {
+                exoPlayer.removeMediaItems(firstAutoplayIndex, total)
+            }
         }
     }
 
@@ -582,6 +587,25 @@ class EviPlaybackService : MediaSessionService() {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // Check if error is from playing a local file:// that might be corrupted or unreadable
+            val currentItem = exoPlayer.currentMediaItem
+            val isLocalFile = currentItem?.localConfiguration?.uri?.scheme == "file"
+            if (isLocalFile) {
+                val song = MediaItemMapper.fromMediaItem(currentItem)
+                if (song != null) {
+                    val quality = container.settingsStore.settings.value.audioQuality
+                    val streamingItem = MediaItemMapper.toMediaItem(song, quality, localAudioFile = null)
+                    val curIdx = exoPlayer.currentMediaItemIndex
+                    val curPos = exoPlayer.currentPosition.coerceAtLeast(0L)
+                    container.emitToast("Offline file unavailable, streaming from server...")
+                    exoPlayer.replaceMediaItem(curIdx, streamingItem)
+                    exoPlayer.seekTo(curIdx, curPos)
+                    exoPlayer.prepare()
+                    exoPlayer.play()
+                    return
+                }
+            }
+
             val isNetworkOrIo = error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
@@ -602,6 +626,13 @@ class EviPlaybackService : MediaSessionService() {
                 return
             }
             errorRetryCount = 0
+
+            // If repeat mode is REPEAT_MODE_ONE and track permanently fails, stop to avoid infinite loop!
+            if (exoPlayer.repeatMode == Player.REPEAT_MODE_ONE) {
+                container.emitToast("Cannot play this track")
+                exoPlayer.pause()
+                return
+            }
 
             // If a single track in a multi-item queue fails permanently, skip to next to keep music going
             if (exoPlayer.mediaItemCount > 1 && exoPlayer.hasNextMediaItem()) {
@@ -664,7 +695,12 @@ class EviPlaybackService : MediaSessionService() {
         }
 
         override fun seekToNext() {
-            if (super.hasNextMediaItem()) {
+            if (repeatMode == REPEAT_MODE_ONE && mediaItemCount > 1) {
+                // User explicitly pressed "Next" button while in Loop 1 mode.
+                // Advance to the next track in the queue, keeping loop 1 active for the new track.
+                val nextIdx = (currentMediaItemIndex + 1) % mediaItemCount
+                seekTo(nextIdx, 0L)
+            } else if (super.hasNextMediaItem()) {
                 super.seekToNextMediaItem()
             } else if (repeatMode == REPEAT_MODE_ALL && mediaItemCount > 0) {
                 seekTo(0, 0L)
